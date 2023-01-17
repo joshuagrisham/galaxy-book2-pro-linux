@@ -19,7 +19,9 @@ Release:	22.10
 Codename:	kinetic
 ```
 
-In order to install Linux on the laptop you will need to adjust the BIOS setting for SecureBoot to allow more than just Windows to run (forget the setting but there are 2 choices you can make -- completely turn off SecureBoot or change to the setting which allows "additional partner" operating systems such as kernels built by Ubuntu but still signed by the Microsoft SecureBoot certificate issuer).
+In order to install Linux on the laptop you will need to adjust the BIOS setting for Secure Boot to either
+- With `Secure Boot Control` set to `On`, set `Secure Boot Certificate keyset` to `Secure Boot Supported OS` if you wish to run Linux but only with kernels signed with the certificate to support Secure Boot (including those from Ubuntu's default kernel packages).
+- or just set `Secure Boot Control` to `Off` if you want to run unsigned kernels (such as if you wish to compile the kernel yourself).
 
 ## Display Backlight
 
