@@ -29,44 +29,23 @@ For example with Grub you would modify the file `/etc/default/grub` and add it t
 
 TODO: Try to create patch? (maybe with some kind of quirk or something in i915 module)
 
-## Display Out including with Thunderbolt 3/4 Dock
+## Display Out with Thunderbolt 3/4 Dock
 
-Using a Thunderbolt Dock only works with the USB-C port closer to the back (near the HDMI port).
+- Make sure to use a high quality cable which specifically supports Thunderbolt 3 or 4 (depending on your dock).
+- If your dock relies on the graphics hardware of the device (for example DisplayPort Alt Mode) as opposed to a software-based solution (like DisplayLink) then what I have found is:
+  - The USB-C port closer to the back (by the full-size HDMI port) works with HDMI to the monitor
+  - The USB-C port closer to the front (by the power/charging light) works with DisplayPort to the monitor
+- Maybe try setting the refresh rate a bit lower than the maximum otherwise I have noticed some instability / intermittent failures.
+- Power Delivery through the dock seems to work very well if you have plugged in before booting, but if you plug the dock into the front (near power light) USB-C port then sometimes Power Delivery does not work. If you plug into the back port first, then unplug and plug into the front, it sometimes "kicks on" a bit more reliably.
 
-I am using a "Lenovo ThinkPad Thunderbolt 3 Dock" but there are some issues with the display out. Here is the only combination that I have found to work:
+If using a lower quality USB-C cable with a dock I found that it can work with HDMI out to the monitor if you disable MST using the following kernel options:
 
-- Add these kernel options:
-  - `i915.enable_dp_mst=0`
-  - `i915.enable_psr2_sel_fetch=1`
+- `i915.enable_dp_mst=0`
+- `i915.enable_psr2_sel_fetch=1`
 
 (For example by updating `/etc/default/grub`, running `update-grub`, and rebooting)
 
-- Plug your external display into the HDMI port of the TB dock (I could never get it to work with DisplayPort).
-- Ideally have the dock plugged in before you power on the computer (otherwise see below).
-
-It is the combination of `enable_dp_mst=0` and using the HDMI port that was the only way I could get this to work.
-
-One big downside to disabling MST and using HDMI is that you cannot get as good of refresh rates. I normally like to run at least 100 Hz on my monitor (ideally 144 but it even supports up to 165), but with this configuration the max is 75 Hz.
-
-There is still a "quirk" if you do not start up the kernel while the dock is already connected, or if you disconnect and reconnect the dock after the kernel is already loaded and running. Basically the display does not seem to come on immediately, but if you follow this procedure (assuming GNOME but similar could be done with CLI or another desktop environment?) then it seems to "come back on":
-
-1. Under Settings > Displays, click on the external display.
-1. Press/toggle the "on" button to turn the display output off.
-1. Press "Apply" and then "Keep changes".
-1. Press/toggle the display to turn the display back on, and "Keep changes" again.
-1. Now when you go back to the external display it should still be marked as off, and might have a reduced max resolution and refresh rate -- go ahead and press/toggle "on" again even at this lower resolution.
-1. Press "Apply" and "Keep changes" even though the display does not come on yet again.
-1. Now when you go back to the external display settings, it should again show that the display is still off, but now the resolution and refresh rate should show the correct values. Now when you toggle on the display and click "Keep changes" it should work and the display should come on.
-
-It is super weird and I have not dug deeper into what exactly is going on (nothing really useful shows in `dmesg` or `journalctl` that I have seen so far) but I have repeated this several times with success.
-
-Note the above did not work before I added the option `i915.enable_psr2_sel_fetch=1`; instead I received a set of errors in the journal like this:
-
-```sh
-[ 1033.535161] i915 0000:00:02.0: [drm] *ERROR* [CRTC:80:pipe A] mismatch in has_psr (expected yes, found no)
-[ 1033.535167] i915 0000:00:02.0: [drm] *ERROR* [CRTC:80:pipe A] mismatch in has_psr2 (expected yes, found no)
-[ 1033.535168] i915 0000:00:02.0: [drm] *ERROR* [CRTC:80:pipe A] mismatch in enable_psr2_sel_fetch (expected yes, found no)
-```
+This works pretty well if you boot the kernel with the cable already connected, but it can be a little tricky to force the display to come on if you connect afterwards (you basically have to enable/disable output multiple times in a certain sequence before it will come on).
 
 ## Keyboard Backlight
 
