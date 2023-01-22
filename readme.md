@@ -1,4 +1,4 @@
-# Linux on the Samsing Galaxy Book2 Pro
+# Linux on the Samsung Galaxy Book2 Pro
 
 I am running Ubunutu 22.10 with the Ubuntu-packaged kernel version 5.19 on my [Samsung Galaxy Book2 Pro (NP950XED-KA2SE)](https://www.samsung.com/se/business/computers/galaxy-book/galaxy-book2-pro-15inch-i7-16gb-512gb-np950xed-ka2se/). This repository contains various notes different configurations which I am using.
 
@@ -74,7 +74,7 @@ There is quite a bit of discourse online about this issue, IMO the best collecti
 
 There I have even posted a pastebin of my file [necessary-verbs.txt](sound/necessary-verbs.txt).
 
-If you want you can run the script [necessary-verbs.sh](sound/necessary-verbs.sh) to "turn on" the speakers but note that you will need to run this periodically and/or create some kind of service that runs it in the background on certain events or a certain schedule (a bit like is shown in the Manjaro thread linked above).
+If you like, you can run the script [necessary-verbs.sh](sound/necessary-verbs.sh) to "turn on" the speakers but note that you will need to run this periodically and/or create some kind of service that runs it in the background on certain events or a certain schedule (a bit like is shown in the Manjaro thread linked above).
 
 Some of the config files and other logs from my capturing of this list (essentially: running Windows in a QEMU container, mapping the audio devices to the QEMU container, installing the audio drivers within the virtual Windows environment, playing sound from within the QEMU container, and capturing the output into a log file) you can find in the [sound](./sound/) folder of this repository.
 
@@ -86,6 +86,5 @@ I typically get around 5-7 hours of battery life in Linux. Here are some tips:
 
 - Turn off Bluetooth if you do not need to regularly use it.
 - Install `powertop` and then run both `powertop --auto-tune` and `powertop --calibrate` (note that calibration does take some time and does funny stuff with the screen brightness!).
-- Either in Windows or in the BIOS turn on the setting which stops charging at around ~80-85%
-- Charge when battery gets near 20%
-
+- Either in the Windows Samsung app or in the BIOS turn on the setting which stops charging at around 85%
+- Charge when battery gets near 20%, and remove the cable once it stops at 85%
