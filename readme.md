@@ -25,11 +25,11 @@ In order to install Linux on the laptop you will need to adjust the BIOS setting
 
 ## Display Backlight
 
-To add support for the OLED display backlight you can add the following boot parameter: `i915.enable_dpcd_backlight=3`
+To add support for controlling the OLED display backlight you can add the following boot parameter: `i915.enable_dpcd_backlight=3`
 
 For example with Grub you would modify the file `/etc/default/grub` and add it to the `GRUB_CMDLINE_LINUX_DEFAULT` value, run `sudo update-grub`, and then reboot.
 
-TODO: Try to create patch? (maybe with some kind of quirk or something in i915 module)
+I have created an issue to try and drive an upstream fix here: [freedesktop.org: Wrong backlight control type on Samsung Galaxy Book 2 Pro](https://gitlab.freedesktop.org/drm/intel/-/issues/7972).
 
 ## Display Out with Thunderbolt 3/4 Dock
 
