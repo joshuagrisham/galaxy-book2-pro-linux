@@ -1,0 +1,28 @@
+2BC49DEF-7B15-4F05-8BB7-EE37B9547C0B:
+	object_id: DE
+	instance_count: 1
+	flags: 0x2 ACPI_WMI_METHOD
+A6FEA33E-DABF-46F5-BFC8-460D961BEC9F:
+	notify_id: 0xD0
+	instance_count: 1
+	flags: 0x8 ACPI_WMI_EVENT
+05901221-D566-11D1-B2F0-00A0C9062910:
+	object_id: CC
+	instance_count: 1
+	flags: 0x0
+1F13AB7F-6220-4210-8F8E-8BB5E71EE969:
+	object_id: TE
+	instance_count: 1
+	flags: 0x2 ACPI_WMI_METHOD
+05901221-D566-11D1-B2F0-00A0C9062910:
+	object_id: CC
+	instance_count: 1
+	flags: 0x0
+C16C47BA-50E3-444A-AF3A-B1C348380002:
+	object_id: 01
+	instance_count: 1
+	flags: 0x2 ACPI_WMI_METHOD
+05901221-D566-11D1-B2F0-00A0C9062910:
+	object_id: AA
+	instance_count: 1
+	flags: 0x0

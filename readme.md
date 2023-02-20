@@ -62,6 +62,12 @@ TODO keyboard and OS setting are not working
 [ 7441.642465] atkbd serio0: Use 'setkeycodes e02c <keycode>' to make it known.
 ```
 
+TODO: I have a working thought that this (along with some other settings) should be controlled via a new `samsung-wmi` driver, similar to how it works for ASuS, MSI, etc, but not Samsung as of yet. [Here](https://github.com/gh2o/samsung-wmi) is some inspiration where it seems like someone did something like this before?
+
+I have created some working files in the `wmi` folder of this repository. It seems like the WMI GUID has been updated to `C16C47BA-50E3-444A-AF3A-B1C348380002` (from `01`) and no idea if the "magic" that this example seems to be doing still holds up. Next step to take the MOF files into Windows and take a peek with [wmimofck.exe](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/using-wmimofck-exe) to see if I get better results compared to [bmfdec](https://github.com/pali/bmfdec) (which generated some warnings).
+
+Samsung also seems to be focusing on WMI more with recent Windows devices? For example with the [Samsung Galaxy Book BIOS WMI Guide](https://pcmanagement.biz.samsung.com/support-resources/bios-wmi-guide/) it seems like they have made an investment to use WMI in general for this device?
+
 ## Fingerprint Reader
 
 TODO not working
