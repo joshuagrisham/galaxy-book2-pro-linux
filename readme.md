@@ -70,7 +70,7 @@ Samsung also seems to be focusing on WMI more with recent Windows devices? For e
 
 ## Fingerprint Reader
 
-TODO not working
+There is currently no [libfprint](https://fprint.freedesktop.org/) driver for the fingerprint reader sensor in this device. I have reverse-engineered and started a PoC in Python that is a start for how a driver could be built for the ELAN / EgisTec `1C7A:0582` device on this laptop. See [fingerprint/readme.md](./fingerprint/readme.md) for more details.
 
 ## Sound
 
