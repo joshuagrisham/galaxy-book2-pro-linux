@@ -35,16 +35,18 @@ Reading/Writing to the bulk in/out seems to have this kind of payload structure:
 1. 8 bytes hard-coded prefix depending on out vs in
    - `E G I S 00 00 00 01` for commands to the bulk out
    - `S I G E 00 00 00 01` for responses from the bulk in
-2. 2 bytes which seem to be some kind of check bytes for the payload (CRC / xor / sum / ??)
+2. 2 bytes which seem to be some kind of check bytes for the payload.
 3. hardcoded "`00 00 00`"
 4. 2 bytes that seem to be some kind of type/subtype for different processes/events
 5. then it seems to vary a bit more with additional payload data depending on different type of events; either some kind of payload directly or more "type" kind of stuff either before or after some kind of payload
 
-Each "fingerprint" seems to be represented by a unique 32-byte identifier or signuature of some kind. The fingerprints (their 32-byte identifiers) which are currently enrolled can be read from a payload during the initialization sequence, and from what I can tell, it seems like it is the driver software itself that creates each new uniqe ID to send to the device for each new fingerprint during the enrollment process.
+Thanks to [some guidance from a Stack Exchange user](https://reverseengineering.stackexchange.com/questions/32157/derive-logic-for-2-check-bytes-for-a-usb-fingerprint-reader) I was able to piece together a basic method which looks like it computes these "check bytes" how the device is expecting. Essentially each full payload (including these check bytes) can be converted to "32-bit big-endian words from the 16-bit words", each "word" summed together MOD `0xFFFF` should equal `0` and it seems like this matches what I see in the traces, and the device seems to happily accept the payloads now.
+
+Each "fingerprint" seems to be represented by a unique 32-byte identifier or signuature of some kind. The fingerprints (their 32-byte identifiers) which are currently enrolled can be read from a payload during the initialization sequence, and from what I can tell, it seems like it is the driver software itself that creates each new uniqe ID to send to the device for each new fingerprint during the enrollment process. For now I am just generating a random 32-byte token and the device seems to use them happily.
 
 ## How to Use
 
-This PoC requires Python 3 plus the extra packages `docopt` and `crccheck` (though CRC is not really used/working at this time).
+This PoC requires Python 3 plus the extra packages `pyusb` and `docopt`.
 
 I have not sorted out the right `udev` rules for this, so in order to access the device without getting a permission denied exception, I have just used root / sudo instead.
 
@@ -74,64 +76,13 @@ I would probably strongly recommend before using this, to:
 - Boot into Windows and remove any/all existing fingerprints from the sensor before testing with this
 - Make sure to successfully run the `wipe` function from this before trying to go back to Windows and use the sensor again
 
-There are also some major issues and limitations -- see the information below.
+There are also some issues and limitations to be aware of -- see the information below.
 
 ## Issues / Open Questions
 
-### Check Bytes logic and single fingerprint limitation
+### Intermittent device state issues
 
-The biggest issue with this PoC as of right now is that I have not fully nailed down these "check bytes" which I referred to as # 2 in the list above. This means that when you send a packet where this is required, the device just gives a type of "invalid response" on the BULK IN and then just sort of resets its state.
-
-Just to have a "working prototype", what I have done for now is to hard-code the identifier and check bytes for each of the 3 processes (enroll, verify, and wipe) from a single fingerprint trace in the code itself. This means that, in the current implementation, you can only enroll, verify, and wipe one fingerprint and it will always have the same hard-coded identifier on the device.
-
-> Just to repeat again... it is currently only possibly to register one fingerprint on the device with this driver!
-
-If you have previously enrolled any fingerprints on the device via Windows It might be necessary/helpful to first boot into Windows and wipe them all before testing with this mock driver.
-
-#### Example payloads
-
-In case anyone wants to try and tinker with what the logic could be, here are some examples of communication to and from the device. I am not sure if the entire payload is subject to the "check byte" process or only what comes after the prefix and/or these sort of "type/subtype" codes. Again what I believe is that byte 9 and 10 in the below examples are some kind of 2 byte "check" (maybe they are each their own type of independent check?).
-
-All payloads read from the device via its BULK IN also seem to have similar logic (which I assume means that the firmware on the device itself must have the same/similar logic as what this driver needs for the outgoing payloads?)
-
-BULK IN examples (as hex bytes) read from the device during a trace:
-
-```
-53 49 47 45 00 00 00 01 d5 6d 00 00 00 02 90 00
-53 49 47 45 00 00 00 01 d4 6d 00 00 00 02 91 00
-53 49 47 45 00 00 00 01 d5 69 00 00 00 02 90 04
-53 49 47 45 00 00 00 01 ff 6f 00 00 00 02 65 fe
-53 49 47 45 00 00 00 01 ff d0 00 00 00 04 01 0a 64 91
-53 49 47 45 00 00 00 01 fe d0 00 00 00 04 02 0a 64 91
-53 49 47 45 00 00 00 01 d2 61 00 00 00 04 03 0a 90 00
-53 49 47 45 00 00 00 01 cb 61 00 00 00 04 0a 0a 90 00
-53 49 47 45 00 00 00 01 3a d8 00 00 00 0d 39 30 35 30 2e 31 2e 31 2e 38 31 90 00
-53 49 47 45 00 00 00 01 8d 2c 00 00 00 06 02 04 46 39 90 00
-53 49 47 45 00 00 00 01 9f a5 00 00 00 22 01 89 c4 7f 37 a5 e6 f9 81 c2 b5 45 66 ec 3b ff 26 04 39 77 cb 35 44 ae e8 1d 29 93 41 c0 b4 3b 90 00
-```
-
-BULK OUT examples (as hex bytes) sent to the device from the Windows driver during a trace:
-
-```
-45 47 49 53 00 00 00 01 04 54 00 00 00 07 50 07 00 02 00 00 1d
-45 47 49 53 00 00 00 01 1d 1a 00 00 00 07 50 43 00 00 00 00 04
-45 47 49 53 00 00 00 01 00 47 00 00 00 07 50 16 01 00 00 00 20
-45 47 49 53 00 00 00 01 1d 45 00 00 00 07 50 16 02 02 00 00 02
-45 47 49 53 00 00 00 01 21 46 00 00 00 04 50 1a 00 00
-45 47 49 53 00 00 00 01 1f 49 00 00 00 04 50 16 02 01
-45 47 49 53 00 00 00 01 fc 46 00 00 00 07 50 16 05 00 00 00 20
-45 47 49 53 00 00 00 01 55 f1 00 00 00 27 50 16 03 00 00 00 20 01 89 c4 7f 37 a5 e6 f9 81 c2 b5 45 66 ec 3b ff 26 04 39 77 cb 35 44 ae e8 1d 29 93 41 c0 b4 3b
-```
-
-### Fingerprint Identifier Logic
-
-I am not sure how the actual fingerprint identifiers/signatures are created by the driver -- are they just 32 random bytes or is it some kind of hash, which might even include its own check bytes (e.g. 30 bytes plus 2 check bytes?)?
-
-I think and assume that this is related a bit to the above as well (generating check bytes for the payload in general).
-
-As said, in this test code for now I have just copied a single identifier from a trace and hard-coded that as the identifier that will be assigned to your fingerprint data on the device.
-
-As a super "ugly" solution, I guess it would be possible to create a sort of "database" of 10+ identifiers plus their respective check bytes based on capturing them from traces, and bake them hard-coded into the driver, so when a user enrolls a new print it will just take from this library of pre-determined identifiers? But that feels super hacky and then I am not sure if there is any security concerns if eventually everyone using this device in Linux will have potentially the same identifiers for their fingerprint data?
+It seems like sometimes due to various error conditions (and maybe some [Python-specific issues like this one?](https://stackoverflow.com/a/74221763)) the device intermittently refuses to accept commands and resets itself giving an I/O error. Assuming what you are doing is something that should work, often just running the command again (which will issue another a pyusb `reset()` of the device) can work.
 
 ### Multiple Users
 
@@ -149,13 +100,13 @@ I have not done any tests on this but assume that it could be tested in Windows 
 
 In Windows, it seems that the driver can detect when you need to "Move higher", "Move lower", "Move left", and "Move right" if your finger is not directly on the center of the sensor. However, what I have seen in the traces is that it is the exact same payload from the BULK IN in every one of these cases, so I am not sure how the Windows driver is able to differentiate between the different directions. For now in the code I have just written a single generic "please move closer to the center" kind of error message when this response is detected.
 
-### Intermittent device state issues
-
-It seems like sometimes due to various error conditions (and maybe some [Python-specific issues like this one?](https://stackoverflow.com/a/74221763)) the device intermittently refuses to accept commands and resets itself giving an I/O error. Assuming what you are doing is something that should work, often just running the command again (which will issue another a pyusb `reset()` of the device) can work.
-
 ### Certificate/information exchange?
 
 In the Windows packet trace there seems to be some kind of certificate and/or information exchange once for each session upon the first new fingerprint enrollment of that session. I am not sure exactly what this is for. I have tried to completely skip this in the PoC and it does not seem to have negatively impacted how it works, but not sure what this is for and/or how to formulate and interpret the payloads for it at this time.
+
+### Wipe one user and/or one fingerprint at a time instead of for all users and all fingerprints
+
+Based on some testing with multiple users (see above) I believe that it is actually possible to remove one fingerprint at a time just as long as you somehow fetch the fingerprint ID (either via first running a "verify" or grabbing it from a local storage of the IDs), then send it for removal by itself. It is just a matter of coding this scenario up (if desired) and/or if this should just be shelved and instead focus on putting the functionality in the libfprint driver later.
 
 ## Next steps
 
