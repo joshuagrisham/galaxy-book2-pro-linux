@@ -70,7 +70,11 @@ Samsung also seems to be focusing on WMI more with recent Windows devices? For e
 
 ## Fingerprint Reader
 
-There is currently no [libfprint](https://fprint.freedesktop.org/) driver for the fingerprint reader sensor in this device. I have reverse-engineered and started a PoC in Python that is a start for how a driver could be built for the ELAN / EgisTec `1C7A:0582` device on this laptop. See [fingerprint/readme.md](./fingerprint/readme.md) for more details.
+I have opened an issue with the libfprint project for support for this device (see [libfprint: EGIS 1C7A:0582 support for Samsung Galaxy Book2 Pro](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/569)) and have done the following:
+
+- reverse-engineered and started a PoC in Python that is a start for how a driver could be built for the EgisTec `1C7A:0582` device on this laptop. See [fingerprint/readme.md](./fingerprint/readme.md) for more details.
+- created a first version of a working driver which I am now running on my laptop as the first "tester" I guess you could say (see [joshuagrisham/libfprint](https://github.com/joshuagrisham/libfprint))
+
 
 ## Sound
 

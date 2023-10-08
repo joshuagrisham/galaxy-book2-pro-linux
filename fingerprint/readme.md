@@ -1,5 +1,7 @@
 # Samsung Galaxy Book2 Pro Fingerprint Reader testing on Linux
 
+> Update: I have now succeeded in creating a first draft of a "real" libfprint driver for this device. See [libfprint: EGIS 1C7A:0582 support for Samsung Galaxy Book2 Pro](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/569) and some short instructions that I wrote in the file [libfprint.md](./libfprint.md).
+
 After quite a bit of tracing via a Windows guest in QEMU + Wireshark with `usbmon`, I have created a sort of "PoC" Python driver for the EgisTec `1C7A:0582` fingerprint reader that exists on the Samsung Galaxy Book2 Pro 15".
 
 What I found through packet tracing was that this sensor is a MOC (Match on Chip) type of sensor, so the "driver" will basically send various packets to the device in order to steer various events; the sensor has its own storage and the actual fingerprint data resides and is matched on the device itself. This is in contrast to a MOH (Match on Host) type of sensor, where the device only provides an image of the fingerprint to the host, and all storage and matching logic must occur on the host itself via some kind of driver/software.
@@ -12,7 +14,7 @@ Based on analysis of the traces and observation of the behavior, I believe there
 - Verify
 - Wipe
 
-Using inspiration from this [libfprint issue for the Galaxy Book Pro 360](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/470) (which is incidentially a MOH device but some of the Python scripts were super helpful as a starting point) and then especially this [ELAN 04F3:0C4C MOC Python POC driver](https://github.com/depau/Elan-Fingerprint-0c4c-PoC) I was able to put together a similar POC for this `1C7A:0582` device (see [elanmoc-1c7a-0582.py](./elanmoc-1c7a-0582.py)).
+Using inspiration from this [libfprint issue for the Galaxy Book Pro 360](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/470) (which is incidentially a MOH device but some of the Python scripts were super helpful as a starting point) and then especially this [ELAN 04F3:0C4C MOC Python POC driver](https://github.com/depau/Elan-Fingerprint-0c4c-PoC) I was able to put together a similar POC for this `1C7A:0582` device (see [egismoc-1c7a-0582.py](./egismoc-1c7a-0582.py)).
 
 > Please note that this is a super not-yet-even-alpha prototype, and I can't promise that it won't damage your device somehow! Use this at your own risk! (yes, I noticed that the sensor can get quite hot during testing/debugging, this might be a real risk!)
 
@@ -50,23 +52,29 @@ This PoC requires Python 3 plus the extra packages `pyusb` and `docopt`.
 
 I have not sorted out the right `udev` rules for this, so in order to access the device without getting a permission denied exception, I have just used root / sudo instead.
 
+For debugging with VS Code as root you can do something "unsafe" like this (since by default VS Code will not let you run as root):
+
+```sh
+sudo code . --no-sandbox --user-data-dir ~/.vscode/
+```
+
 Run the file with a single parameter corresponding to which function you would like to execute, like this:
 
 ```sh
 # Get command help
-sudo python3 elanmoc-1c7a-0582.py -h
+sudo python3 egismoc-1c7a-0582.py -h
 
 # Show device info
-sudo python3 elanmoc-1c7a-0582.py info
+sudo python3 egismoc-1c7a-0582.py info
 
 # Enroll a fingerprint
-sudo python3 elanmoc-1c7a-0582.py enroll
+sudo python3 egismoc-1c7a-0582.py enroll
 
 # Verify a fingerprint
-sudo python3 elanmoc-1c7a-0582.py verify
+sudo python3 egismoc-1c7a-0582.py verify
 
 # Wipe all enrolled fingerprints
-sudo python3 elanmoc-1c7a-0582.py wipe
+sudo python3 egismoc-1c7a-0582.py wipe
 ```
 
 Note that the current PoC is very "chatty" in that it prints bytes of every message sent and received on the bulk interfaces to stdout without really a way to turn this off unless you change the code.

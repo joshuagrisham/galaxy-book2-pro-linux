@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-ELAN 1C7A:0582 Match-on-Chip fingerprint reader driver PoC.
+EGIS 1C7A:0582 Match-on-Chip fingerprint reader driver PoC.
 
 Usage:
     ARGV0 -h | --help
