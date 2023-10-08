@@ -1,22 +1,22 @@
 # Linux on the Samsung Galaxy Book2 Pro
 
-I am running Ubunutu 22.10 with the Ubuntu-packaged kernel version 5.19 on my [Samsung Galaxy Book2 Pro (NP950XED-KA2SE)](https://www.samsung.com/se/business/computers/galaxy-book/galaxy-book2-pro-15inch-i7-16gb-512gb-np950xed-ka2se/). This repository contains various notes different configurations which I am using.
+I am running Ubunutu 23.04 (previously 22.10) with the Ubuntu-packaged kernel version 6.2.x on my [Samsung Galaxy Book2 Pro (NP950XED-KA2SE)](https://www.samsung.com/se/business/computers/galaxy-book/galaxy-book2-pro-15inch-i7-16gb-512gb-np950xed-ka2se/). This repository contains various notes on different configurations and custom drivers which I am using.
 
 ```sh
 $ sudo dmesg
-[    0.000000] microcode: microcode updated early to revision 0x421, date = 2022-06-15
-[    0.000000] Linux version 5.19.0-28-generic (buildd@lcy02-amd64-027) (x86_64-linux-gnu-gcc-12 (Ubuntu 12.2.0-3ubuntu1) 12.2.0, GNU ld (GNU Binutils for Ubuntu) 2.39) #29-Ubuntu SMP PREEMPT_DYNAMIC Thu Dec 15 09:37:06 UTC 2022 (Ubuntu 5.19.0-28.29-generic 5.19.17)
-[    0.000000] Command line: BOOT_IMAGE=/boot/vmlinuz-5.19.0-28-generic root=UUID=51750a71-2075-49d1-b42a-895d4b9c3ebb ro quiet splash i915.enable_dpcd_backlight=3 vt.handoff=7
+[    0.000000] microcode: microcode updated early to revision 0x42c, date = 2023-04-18
+[    0.000000] Linux version 6.2.0-34-generic (buildd@lcy02-amd64-025) (x86_64-linux-gnu-gcc-12 (Ubuntu 12.3.0-1ubuntu1~23.04) 12.3.0, GNU ld (GNU Binutils for Ubuntu) 2.40) #34-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep  4 13:06:55 UTC 2023 (Ubuntu 6.2.0-34.34-generic 6.2.16)
+[    0.000000] Command line: BOOT_IMAGE=/boot/vmlinuz-6.2.0-34-generic root=UUID=048b3a23-f56e-4447-8d23-59f889235454 ro quiet splash i915.enable_dpcd_backlight=3 vt.handoff=7
 ...
-[    0.000000] DMI: SAMSUNG ELECTRONICS CO., LTD. 950XED/NP950XED-KA2SE, BIOS P08RGF.054.220817.ZQ 08/17/2022
+[    0.000000] DMI: SAMSUNG ELECTRONICS CO., LTD. 950XED/NP950XED-KA2SE, BIOS P11RGF.057.230404.ZQ 04/04/2023
 ...
 
 $ lsb_release -a
 No LSB modules are available.
 Distributor ID:	Ubuntu
-Description:	Ubuntu 22.10
-Release:	22.10
-Codename:	kinetic
+Description:	Ubuntu 23.04
+Release:	23.04
+Codename:	lunar
 ```
 
 In order to install Linux on the laptop you will need to adjust the BIOS setting for Secure Boot to either
@@ -31,24 +31,6 @@ For example with Grub you would modify the file `/etc/default/grub` and add it t
 
 I have created an issue to try and drive an upstream fix here: [freedesktop.org: Wrong backlight control type on Samsung Galaxy Book 2 Pro](https://gitlab.freedesktop.org/drm/intel/-/issues/7972).
 
-## Display Out with Thunderbolt 3/4 Dock
-
-- Make sure to use a high quality cable which specifically supports Thunderbolt 3 or 4 (depending on your dock).
-- If your dock relies on the graphics hardware of the device (for example DisplayPort Alt Mode) as opposed to a software-based solution (like DisplayLink) then what I have found is:
-  - The USB-C port closer to the back (by the full-size HDMI port) works with HDMI to the monitor
-  - The USB-C port closer to the front (by the power/charging light) works with DisplayPort to the monitor
-- Maybe try setting the refresh rate a bit lower than the maximum otherwise I have noticed some instability / intermittent failures.
-- Power Delivery through the dock seems to work very well if you have plugged in before booting, but if you plug the dock into the front (near power light) USB-C port then sometimes Power Delivery does not work. If you plug into the back port first, then unplug and plug into the front, it sometimes "kicks on" a bit more reliably.
-
-If using a lower quality USB-C cable with a dock I found that it can work with HDMI out to the monitor if you disable MST using the following kernel options:
-
-- `i915.enable_dp_mst=0`
-- `i915.enable_psr2_sel_fetch=1`
-
-(For example by updating `/etc/default/grub`, running `update-grub`, and rebooting)
-
-This works pretty well if you boot the kernel with the cable already connected, but it can be a little tricky to force the display to come on if you connect afterwards (you basically have to enable/disable output multiple times in a certain sequence before it will come on).
-
 ## Keyboard Backlight
 
 TODO keyboard and OS setting are not working
@@ -62,11 +44,13 @@ TODO keyboard and OS setting are not working
 [ 7441.642465] atkbd serio0: Use 'setkeycodes e02c <keycode>' to make it known.
 ```
 
-TODO: I have a working thought that this (along with some other settings) should be controlled via a new `samsung-wmi` driver, similar to how it works for ASuS, MSI, etc, but not Samsung as of yet. [Here](https://github.com/gh2o/samsung-wmi) is some inspiration where it seems like someone did something like this before?
+~~TODO: I have a working thought that this (along with some other settings) should be controlled via a new `samsung-wmi` driver, similar to how it works for ASuS, MSI, etc, but not Samsung as of yet. [Here](https://github.com/gh2o/samsung-wmi) is some inspiration where it seems like someone did something like this before?~~
 
-I have created some working files in the `wmi` folder of this repository. It seems like the WMI GUID has been updated to `C16C47BA-50E3-444A-AF3A-B1C348380002` (from `01`) and no idea if the "magic" that this example seems to be doing still holds up. Next step to take the MOF files into Windows and take a peek with [wmimofck.exe](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/using-wmimofck-exe) to see if I get better results compared to [bmfdec](https://github.com/pali/bmfdec) (which generated some warnings).
+~~I have created some working files in the `wmi` folder of this repository. It seems like the WMI GUID has been updated to `C16C47BA-50E3-444A-AF3A-B1C348380002` (from `01`) and no idea if the "magic" that this example seems to be doing still holds up. Next step to take the MOF files into Windows and take a peek with [wmimofck.exe](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/using-wmimofck-exe) to see if I get better results compared to [bmfdec](https://github.com/pali/bmfdec) (which generated some warnings).~~
 
-Samsung also seems to be focusing on WMI more with recent Windows devices? For example with the [Samsung Galaxy Book BIOS WMI Guide](https://pcmanagement.biz.samsung.com/support-resources/bios-wmi-guide/) it seems like they have made an investment to use WMI in general for this device?
+~~Samsung also seems to be focusing on WMI more with recent Windows devices? For example with the [Samsung Galaxy Book BIOS WMI Guide](https://pcmanagement.biz.samsung.com/support-resources/bios-wmi-guide/) it seems like they have made an investment to use WMI in general for this device?~~
+
+I now *think* that WMI has nothing to do with this specific device, and the WMI interface they have created in the BIOS is only for handling the functions like what you can see listed as "ItemCodes in the Samsung WMI guide above. Instead my current theory is that some kind of driver will need to be created to send commands to a device but have not yet sorted out exactly what is happening here.
 
 ## Fingerprint Reader
 
@@ -75,10 +59,11 @@ I have opened an issue with the libfprint project for support for this device (s
 - reverse-engineered and started a PoC in Python that is a start for how a driver could be built for the EgisTec `1C7A:0582` device on this laptop. See [fingerprint/readme.md](./fingerprint/readme.md) for more details.
 - created a first version of a working driver which I am now running on my laptop as the first "tester" I guess you could say (see [joshuagrisham/libfprint](https://github.com/joshuagrisham/libfprint))
 
-
 ## Sound
 
 Audio works over bluetooth, with the 3.5mm audio jack, or with the USB-A or C ports, but not out-of-the-box with the speakers.
+
+> **Huge caveat here:** read and test the below at your own risk! No idea if this can or should work, and there have been reports of "funny smells", "funny sounds", and speakers stopping to work entirely. You have been warned!
 
 There is quite a bit of discourse online about this issue, IMO the best collection of information is in this Github Issue posted on the SOF project here: https://github.com/thesofproject/linux/issues/4055 (including a reference to the Manjaro thread here: https://forum.manjaro.org/t/howto-set-up-the-audio-card-in-samsung-galaxy-book/37090)
 
@@ -98,3 +83,20 @@ I typically get around 5-7 hours of battery life in Linux. Here are some tips:
 - Install `powertop` and then run both `powertop --auto-tune` and `powertop --calibrate` (note that calibration does take some time and does funny stuff with the screen brightness!).
 - Either in the Windows Samsung app or in the BIOS turn on the setting which stops charging at around 85%
 - Charge when battery gets near 20%, and remove the cable once it stops at 85%
+
+## Using a Thunderbolt Dock
+
+There is only one Thunderbolt port on this laptop (USB-C port closer to the front, by the power/charging light). Even when using this port I have had some intermittent problems and can give a few tips:
+
+- Make sure to use a high quality cable which specifically supports Thunderbolt 3 or 4 (depending on your dock).
+- Occasionally Power Delivery (through the dock via the same USB-C cable) does not seem to start. It can work to remove and re-insert the cable one or more times, or to turn off and back on the dock.
+- I have had some trouble using an HDMI port on the dock with the Thunderbolt port of this laptop, but when I use the dock's DisplayPort to my monitor then it seems to work much more reliably.
+- It can help to lower the refresh rate of your display (e.g. if your display supports 144+ Hz, maybe try 75 or 100).
+
+I have also actually had some success driving a dock from the non-Thunderbolt port of this device (the USB-C port closer to the back, by the full-size HDMI port) as long as you make sure to connect the display to an HDMI port of the dock (and not a DisplayPort), and add the following kernel boot parameters:
+- `i915.enable_dp_mst=0`
+- `i915.enable_psr2_sel_fetch=1`
+
+(For example by updating `/etc/default/grub`, running `update-grub`, and rebooting)
+
+This works pretty well if you boot the kernel with the cable already connected, but it can be a little tricky to force the display to come on if you connect afterwards (you basically have to enable/disable output multiple times in a certain sequence before it will come on). And also in this case, it can help to lower the refresh rate.
