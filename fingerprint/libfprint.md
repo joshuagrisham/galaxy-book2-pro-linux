@@ -13,7 +13,9 @@ sudo apt install libgudev-1.0-dev
 sudo apt install gtk-doc-tools
 ```
 
-## Fetch and build `libfrint`
+Other dependencies might be needed depending on what else you want to do (for example if you want to capture test data you will need Wireshark + tshark). 
+
+## Fetch and build `libfprint`
 
 ```sh
 # upstream
@@ -31,4 +33,10 @@ meson test
 
 # Install if desired
 sudo meson install
+```
+
+If you want to see more information in the log then you can update the file `/lib/systemd/system/fprintd.service` (assuming you are using systemd); specifically you can add or update the `Environment` value to something like this:
+
+```ini
+Environment=G_MESSAGES_DEBUG=all
 ```
