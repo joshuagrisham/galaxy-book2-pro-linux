@@ -57,7 +57,8 @@ I now *think* that WMI has nothing to do with this specific device, and the WMI 
 I have opened an issue with the libfprint project for support for this device (see [libfprint: EGIS 1C7A:0582 support for Samsung Galaxy Book2 Pro](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/569)) and have done the following:
 
 - reverse-engineered and started a PoC in Python that is a start for how a driver could be built for the EgisTec `1C7A:0582` device on this laptop. See [fingerprint/readme.md](./fingerprint/readme.md) for more details.
-- created a first version of a working driver which I am now running on my laptop as the first "tester" I guess you could say (see [joshuagrisham/libfprint](https://github.com/joshuagrisham/libfprint))
+- created a first version of a working driver which I am now running on my laptop as the first "tester" I guess you could say (see [joshuagrisham/libfprint](https://gitlab.freedesktop.org/joshuagrisham/libfprint.git))
+- created libfprint Merge Request: [Add Egis Technology (LighTuning) Match-On-Chip driver (egismoc)](https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/451)
 
 ## Sound
 
