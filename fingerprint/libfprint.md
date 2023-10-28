@@ -22,6 +22,7 @@ git clone https://gitlab.freedesktop.org/libfprint/libfprint.git
 
 # or my fork, which includes egismoc for this device
 git clone https://gitlab.freedesktop.org/joshuagrisham/libfprint.git
+git checkout egismoc
 
 cd libfprint/
 meson setup builddir
