@@ -3,14 +3,7 @@
 ## Install dependencies
 
 ```sh
-sudo apt install python3-mesonpy
-sudo apt install cmake
-sudo apt install libgusb-dev
-sudo apt install libcairo2-dev
-sudo apt install libgirepository1.0-dev
-sudo apt install libnss3-dev
-sudo apt install libgudev-1.0-dev
-sudo apt install gtk-doc-tools
+sudo apt install meson cmake libgusb-dev libcairo2-dev libgirepository1.0-dev libnss3-dev libgudev-1.0-dev gtk-doc-tools
 
 # install tshark if you want to be able to create new test data captures
 sudo apt install tshark
@@ -19,13 +12,14 @@ sudo apt install tshark
 sudo apt install valgrind
 ```
 
-Other dependencies might be needed depending on what else you want to do (for example if you want to capture test data you might also need Wireshark). 
+Other dependencies might be needed depending on what else you want to do (for example if you want to capture test data, you might also need Wireshark). 
 
 ## Fetch and build `libfprint`
 
 ```sh
 # upstream
 git clone https://gitlab.freedesktop.org/libfprint/libfprint.git
+
 # or my fork, which includes egismoc for this device
 git clone https://gitlab.freedesktop.org/joshuagrisham/libfprint.git
 
@@ -36,6 +30,13 @@ meson compile
 
 # Run unit tests if desired
 meson test
+# Or just for this driver
+meson test egismoc
+
+# Run valgrind tests if desired
+meson test --setup=valgrind -v
+# Or just for this driver
+meson test --setup=valgrind -v egismoc
 
 # Install if desired
 sudo meson install
