@@ -89,6 +89,9 @@ sudo apt remove libfprint-2-tod1
 sudo apt install libfprint-2-tod1
 # And then if you see that fprintd was uninstalled, install it again
 sudo apt install fprintd
+# Add debug messages again and restart fprintd
+echo Environment=G_MESSAGES_DEBUG=all | sudo tee --append /lib/systemd/system/fprintd.service
+sudo systemctl restart fprintd.service
 ```
 
 In case you need then you can run the meson install again (but in my case when I checked `journalctl -u fprintd.service -e` it actually started with my installed drivers already at this point!)
