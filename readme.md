@@ -23,6 +23,21 @@ In order to install Linux on the laptop you will need to adjust the BIOS setting
 - With `Secure Boot Control` set to `On`, set `Secure Boot Certificate keyset` to `Secure Boot Supported OS` if you wish to run Linux but only with kernels signed with the certificate to support Secure Boot (including those from Ubuntu's default kernel packages).
 - or just set `Secure Boot Control` to `Off` if you want to run unsigned kernels (such as if you wish to compile the kernel yourself).
 
+## Linux Platform Driver
+
+I have created the start of a Linux Kernel platform driver for the device called "Samsung Galaxybook" which you can find here: <https://github.com/joshuagrisham/samsung-galaxybook-extras>
+
+It is likely that this driver can actually support many of the recent Samsung Galaxy Book series notebooks (not just the Galaxy Book2 Pro like I have).
+
+With this driver, there is expected to be the possibility to control at least the following features:
+
+- Keyboard backlight
+- "Dolby Atmos" mode for the speakers
+- Performance modes (High performance, Optimized, Quiet, Silent)
+- Battery saver (stop charging at 85%)
+- Start device automatically when opening lid
+- USB ports provide charging when device is turned off
+
 ## Display Backlight
 
 To add support for controlling the OLED display backlight you can add the following boot parameter: `i915.enable_dpcd_backlight=3`
@@ -31,33 +46,16 @@ For example with Grub you would modify the file `/etc/default/grub` and add it t
 
 I have created an issue to try and drive an upstream fix here: [freedesktop.org: Wrong backlight control type on Samsung Galaxy Book 2 Pro](https://gitlab.freedesktop.org/drm/intel/-/issues/7972).
 
-## Keyboard Backlight
-
-TODO keyboard and OS setting are not working
-
-- "Always on" which is cool, but maybe we would want to turn it off sometimes?
-- No LED device present for it in `/sys/class/leds/` ?
-- The Fn key (Fn+F9) is not recognized
-
-```sh
-[ 7441.642453] atkbd serio0: Unknown key pressed (translated set 2, code 0xac on isa0060/serio0).
-[ 7441.642465] atkbd serio0: Use 'setkeycodes e02c <keycode>' to make it known.
-```
-
-~~TODO: I have a working thought that this (along with some other settings) should be controlled via a new `samsung-wmi` driver, similar to how it works for ASuS, MSI, etc, but not Samsung as of yet. [Here](https://github.com/gh2o/samsung-wmi) is some inspiration where it seems like someone did something like this before?~~
-
-~~I have created some working files in the `wmi` folder of this repository. It seems like the WMI GUID has been updated to `C16C47BA-50E3-444A-AF3A-B1C348380002` (from `01`) and no idea if the "magic" that this example seems to be doing still holds up. Next step to take the MOF files into Windows and take a peek with [wmimofck.exe](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/using-wmimofck-exe) to see if I get better results compared to [bmfdec](https://github.com/pali/bmfdec) (which generated some warnings).~~
-
-~~Samsung also seems to be focusing on WMI more with recent Windows devices? For example with the [Samsung Galaxy Book BIOS WMI Guide](https://pcmanagement.biz.samsung.com/support-resources/bios-wmi-guide/) it seems like they have made an investment to use WMI in general for this device?~~
-
-I now *think* that WMI has nothing to do with this specific device, and the WMI interface they have created in the BIOS is only for handling the functions like what you can see listed as "ItemCodes in the Samsung WMI guide above. Instead my current theory is that some kind of driver will need to be created to send commands to a device but have not yet sorted out exactly what is happening here.
-
 ## Fingerprint Reader
+
+A draft libfprint driver is available for this device. See [fingerprint/libfprint.md](./fingerprint/libfprint.md) for information on how to download, test, and install it. Hopefully it will be merged in soon!
+
+Background:
 
 I have opened an issue with the libfprint project for support for this device (see [libfprint: EGIS 1C7A:0582 support for Samsung Galaxy Book2 Pro](https://gitlab.freedesktop.org/libfprint/libfprint/-/issues/569)) and have done the following:
 
 - reverse-engineered and started a PoC in Python that is a start for how a driver could be built for the EgisTec `1C7A:0582` device on this laptop. See [fingerprint/readme.md](./fingerprint/readme.md) for more details.
-- created a first version of a working driver which I am now running on my laptop as the first "tester" I guess you could say (see [joshuagrisham/libfprint](https://gitlab.freedesktop.org/joshuagrisham/libfprint.git))
+- created a first version of a working driver which I am now running on my laptop as the first "tester" I guess you could say (see [gitlab.freedesktop.org/joshuagrisham/libfprint](https://gitlab.freedesktop.org/joshuagrisham/libfprint.git))
 - created libfprint Merge Request: [Add Egis Technology (LighTuning) Match-On-Chip driver (egismoc)](https://gitlab.freedesktop.org/libfprint/libfprint/-/merge_requests/451)
 
 ## Sound
