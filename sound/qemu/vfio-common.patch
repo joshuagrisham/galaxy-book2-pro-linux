@@ -1,0 +1,117 @@
+diff --git a/hw/vfio/common.c b/hw/vfio/common.c
+index 9aac21a..6ddf7e7 100644
+--- a/hw/vfio/common.c
++++ b/hw/vfio/common.c
+@@ -204,6 +204,24 @@ int vfio_set_irq_signaling(VFIODevice *vbasedev, int index, int subindex,
+     return ret;
+ }
+ 
++uint64_t corbbase = 0;
++uint64_t rirbbase = 0;
++uint64_t last_corbwp = 0;
++uint64_t last_rirbwp = 0;
++uint64_t corbs[1000] = { 0 };
++uint64_t rirbs[1000] = { 0 };
++
++/*
++ * Get current timestamp in milliseconds
++ */
++int64_t now_millis(void);
++int64_t now_millis(void)
++{
++    struct timespec now;
++    timespec_get(&now, TIME_UTC);
++    return ((int64_t) now.tv_sec) * 1000 + ((int64_t) now.tv_nsec) / 1000000;
++}
++
+ /*
+  * IO Port/MMIO - Beware of the endians, VFIO is always little endian
+  */
+@@ -237,6 +255,52 @@ void vfio_region_write(void *opaque, hwaddr addr,
+         break;
+     }
+ 
++    if (region->nr == 0 && addr == 0x40) {
++        printf("CORBLBASE write of 0x%" PRIx64 "\n", data);
++        if (size == 8) {
++            corbbase = data;
++        } else {
++            corbbase = (corbbase & 0xffffffff00000000) | (data & 0xffffffff);
++        }
++    } else if (region->nr == 0 && addr == 0x44) {
++        printf("CORBUBASE write of 0x%" PRIx64 "\n", data);
++        corbbase = (data << 32) | (corbbase & 0xffffffff);
++    } else if (region->nr == 0 && addr == 0x50) {
++        printf("RIRBLBASE write of 0x%" PRIx64 "\n", data);
++        if (size == 8) {
++            rirbbase = data;
++        } else {
++            rirbbase = (rirbbase & 0xffffffff00000000) | (data & 0xffffffff);
++        }
++    } else if (region->nr == 0 && addr == 0x54) {
++        printf("RIRBUBASE write of 0x%" PRIx64 "\n", data);
++        rirbbase = (data << 32) | (rirbbase & 0xffffffff);
++    } else if (region->nr == 0 && addr == 0x48) {
++        uint8_t buf[16];
++        uint64_t x;
++
++        printf("CORBWP advance to %ld, last WP %ld\n", data, last_corbwp);
++
++        for (x = last_corbwp + 1; x <= data; x++) {
++            uint64_t dmaaddr = corbbase + (x * 4);
++
++            cpu_physical_memory_read(dmaaddr, buf, 4);
++            corbs[x] = (uint32_t)ldl_p(buf);
++
++            time_t now = time(NULL);
++
++            printf("%.24s [%" PRId64 "]: write: CORB[%ld] = 0x%" PRIx64 " (caddr:0x%02lX nid:0x%02lX "
++                "control:0x%03lX param:0x%02lX)\n",
++                ctime(&now),
++                now_millis(),
++                x,
++                corbs[x],
++                ((corbs[x] >> 28) & 0xf), ((corbs[x] >> 20) & 0x7f),
++                ((corbs[x] >> 8) & 0xfff), (corbs[x] & 0xff));
++        }
++        last_corbwp = data;
++    }
++
+     if (pwrite(vbasedev->fd, &buf, size, region->fd_offset + addr) != size) {
+         error_report("%s(%s:region%d+0x%"HWADDR_PRIx", 0x%"PRIx64
+                      ",%d) failed: %m",
+@@ -294,6 +358,34 @@ uint64_t vfio_region_read(void *opaque,
+         break;
+     }
+ 
++    if (region->nr == 0 && addr == 0x58) {
++        uint8_t buf[16];
++        uint64_t x;
++
++        printf("RIRBWP advance to %ld, last WP %ld\n", data, last_rirbwp);
++
++        for (x = last_rirbwp + 1; x <= data; x++) {
++            uint64_t dmaaddr = rirbbase + (x * 8);
++
++            cpu_physical_memory_read(dmaaddr, buf, 4);
++            rirbs[x] = (uint32_t)ldl_p(buf);
++
++            time_t now = time(NULL);
++
++            printf("%.24s [%" PRId64 "]: read: CORB caddr:0x%02lX nid:0x%02lX control:0x%03lX param:0x%02lX "
++                "response:0x%lx",
++                ctime(&now),
++                now_millis(),
++                ((corbs[x] >> 28) & 0xf), ((corbs[x] >> 20) & 0x7f),
++                ((corbs[x] >> 8) & 0xfff), (corbs[x] & 0xff),
++                rirbs[x]);
++
++            cpu_physical_memory_read(dmaaddr + 4, buf, 4);
++            printf(" (ex 0x%x)\n", (uint32_t)ldl_p(buf));
++        }
++        last_rirbwp = data;
++    }
++
+     trace_vfio_region_read(vbasedev->name, region->nr, addr, size, data);
+ 
+     /* Same as write above */
