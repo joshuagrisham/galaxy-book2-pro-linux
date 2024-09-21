@@ -41,6 +41,8 @@ USB_BULK_OUT = 0x02
 USB_BULK_IN = 0x81
 USB_INTERRUPT_IN = 0x83
 
+# Number of partial enrollments needed in order to store a print
+NUM_ENROLL_STAGES = 20
 
 # Reading/Writing to the bulk in/out seems to have this kind of payload structure:
 #  1) 8 bytes hard-coded prefix depending on out vs in (see below)
@@ -195,10 +197,10 @@ def info():
 
 # TODO: In the Windows driver they seem to be able to tell difference between Move Lower / Higher / Left / Right but could not find any difference in payload for each of these conditions (it was all the same payload pattern for these "not in center" conditions)
 # also as a "hack" python has trouble if the byte is 0x0a because it interprets this as a linebreak (char 0a) and will sometimes not match this as "any character" (".") so will use a hack (.|\n) as the placeholder to pick up just in case the byte is 0x0a
-FINGER_NOT_YET_ENROLLED_REGEX = re.compile(READ_PREFIX + b'\xd5(.|\n)\x00\x00\x00\x02\x90(.|\n)')
-NOT_IN_CENTER_REGEX           = re.compile(READ_PREFIX + b'(.|\n)\xd0\x00\x00\x00\x04(.|\n)\x0a\x64\x91')
-SENSOR_DIRTY_REGEX            = re.compile(READ_PREFIX + b'\x00(.|\n)\x00\x00\x00\x02\x64(.|\n)')
-PARTIAL_READ_SUCCESS_REGEX    = re.compile(READ_PREFIX + b'(.|\n)\x61\x00\x00\x00\x04(.|\n)\x0a\x90\x00') # Maybe we don't need to care about this one? also some bytes seem to increment/decrement based on which valid_read this is, we could use this if we did not want to keep track of read number in our code
+FINGER_NOT_YET_ENROLLED_REGEX = re.compile(READ_PREFIX + b'(.|\n){0,}\x90\x04')
+NOT_IN_CENTER_REGEX           = re.compile(READ_PREFIX + b'(.|\n)(.|\n)\x00\x00\x00\x04(.|\n){0,}\x64\x91')
+SENSOR_DIRTY_REGEX            = re.compile(READ_PREFIX + b'(.|\n)(.|\n)\x00\x00\x00\x02\x64(.|\n){0,}')
+PARTIAL_READ_SUCCESS_REGEX    = re.compile(READ_PREFIX + b'(.|\n)(.|\n)\x00\x00\x00\x04(.|\n){0,}\x90\x00') # Maybe we don't need to care about this one? also some bytes seem to increment/decrement based on which valid_read this is, we could use this if we did not want to keep track of read number in our code
 
 def enroll():
 
@@ -267,7 +269,7 @@ def enroll():
 	read_prompt = "Began registration of a new fingerprint. Please touch the sensor again..."
 
 	valid_reads = 0
-	while valid_reads < 10:
+	while valid_reads < NUM_ENROLL_STAGES:
 		print(read_prompt)
 		wait_for_finger()
 		print("Fingerprint detected!")
@@ -288,7 +290,7 @@ def enroll():
 		else:
 			is_valid = True
 
-		if valid_reads < 9 or not is_valid:
+		if valid_reads < (NUM_ENROLL_STAGES - 1) or not is_valid:
 			write(b'\x04\x50\x1a\x00\x00')
 			print(f"Read: {read().tobytes()}")
 
@@ -313,7 +315,7 @@ def enroll():
 
 		if is_valid:
 			valid_reads += 1
-			read_prompt = f"Great job! Please touch the sensor again... ({valid_reads}/10)"
+			read_prompt = f"Great job! Please touch the sensor again... ({valid_reads}/{NUM_ENROLL_STAGES})"
 
 
 
