@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-EGIS 1C7A:0582 Match-on-Chip fingerprint reader driver PoC.
+EGIS 1C7A:05A5 Match-on-Chip fingerprint reader driver PoC.
 
 Usage:
     ARGV0 -h | --help
@@ -33,17 +33,17 @@ import struct
 import time
 
 # find our device
-dev = usb.core.find(idVendor=0x1c7a, idProduct=0x0582)
+dev = usb.core.find(idVendor=0x1c7a, idProduct=0x05a5)
 if dev is None:
 	raise ValueError('Device not found')
 
-# USB URB Device IDs for 1c7a:0582 device
+# USB URB Device IDs for 1c7a:05A5 device
 USB_BULK_OUT = 0x02
 USB_BULK_IN = 0x81
 USB_INTERRUPT_IN = 0x83
 
 # Number of partial enrollments needed in order to store a print
-NUM_ENROLL_STAGES = 10
+NUM_ENROLL_STAGES = 15
 
 # Reading/Writing to the bulk in/out seems to have this kind of payload structure:
 #  1) 8 bytes hard-coded prefix depending on out vs in (see below)
@@ -167,10 +167,10 @@ def fingers_enrolled_payload():
 	# ("num fingers regd * 20" + "9") # TODO based on this logic does it mean only max 7 fingers per user?
 	payload = (((len(fingers_enrolled) + 1) * 0x20) + 0x09).to_bytes()
 	# then 50 17 03 00 00 00
-	payload += b'\x50\x17\x03\x00\x00\x00'
+	payload += b'\x50\x17\x03\x80\x00\x00' # TODO: custom for 05a5; EGISMOC_DRIVER_CHECK_PREFIX_TYPE2
 	# then ("num fingers regd * 20") # TODO based on this logic does it mean only max 7 fingers per user?
 	payload += ((len(fingers_enrolled) + 1) * 0x20).to_bytes()
-	# Then hard-coded 32 x 00s
+	# Then hard-coded 32 x 00s # TODO: custom for 05a5, there are no 00s , does it work with it anyway??
 	payload += b'\x00\x00\x00\x00\x00\x00\x00\x00'
 	payload += b'\x00\x00\x00\x00\x00\x00\x00\x00'
 	payload += b'\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -178,8 +178,8 @@ def fingers_enrolled_payload():
 	# Then each of finger identifiers already registered
 	for f in reversed(fingers_enrolled): #TODO not sure if reversed is required? but seems to be so in trace anyway
 		payload += f
-	# then 00 40
-	payload += b'\x00\x40'
+	# then 00 51
+	payload += b'\x00\x51' # TODO: custom for 05a5, maybe should be new EGISMOC_DRIVER_CHECK_SUFFIX_TYPE2 ?
 
 	return payload
 
@@ -296,7 +296,7 @@ def enroll():
 		wait_for_finger()
 		print("Fingerprint detected!")
 
-		# TODO: Add below pre-sensor read command quirk for 0588 
+		# TODO: Add below pre-sensor read command quirk for 0588 / custom for 05a5
 		write(b'\x07\x50\x7a\x00\x00\x00\x00\x80')
 		print(f"Read: {read().tobytes().hex(' ')}")
 
