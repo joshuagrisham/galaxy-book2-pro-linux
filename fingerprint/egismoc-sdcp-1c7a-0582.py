@@ -34,12 +34,14 @@ import time
 
 import hashlib
 import hmac
-from ecdsa import ECDH, NIST256p
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.kbkdf import (
    CounterLocation, KBKDFHMAC, Mode
 )
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
 
 # find our device
 dev = usb.core.find(idVendor=0x1c7a, idProduct=0x0582)
@@ -66,32 +68,35 @@ NUM_ENROLL_STAGES = 10
 ## Setup for SDCP (https://github.com/Microsoft/SecureDeviceConnectionProtocol)
 
 ## supposed to use NIST P256 curve per https://github.com/Microsoft/SecureDeviceConnectionProtocol/wiki/Secure-Device-Connection-Protocol#cryptographic-algorithms
-#host_signing_key = SigningKey.generate(curve=NIST256p, hashfunc=hashlib.sha256)
-#host_verifying_key = host_signing_key.verifying_key
-#host_private_key = host_signing_key.to_string() # 32-byte private key for signing
-#host_public_key = host_verifying_key.to_string() # 64-byte public key for verifying
-## signature = host_signing_key.sign(b"message")
-
-host_ecdh = ECDH(curve=NIST256p)
-host_private_key = host_ecdh.generate_private_key()
-host_public_key = host_ecdh.get_public_key()
+# per https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ec/#cryptography.hazmat.primitives.asymmetric.ec.SECP256R1
+# SECP256R1 = NIST P-256
+host_private_key = ec.generate_private_key(ec.SECP256R1())
+host_public_key = host_private_key.public_key()
+host_public_key_bytes = host_public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
 host_random = secrets.token_bytes(32)
 
-SEC1_UNCOMPRESSED_POINT_HEADER = b'\x04'
+# if you wish to save and re-use the same private key, capture this value:
+host_private_key_value = host_private_key.private_numbers().private_value
+# then it can be loaded like this:
+# existing_host_private_key = ec.derive_private_key(host_private_key_value, ec.SECP256R1())
 
 def egismoc_sdcp_connect():
 	connect_cmd_prefix = b'\x6b\x50\x57\x01\x00\x00\x00\x62\x20'
 	connect_cmd_suffix = b'\x00\x00'
-	connect_cmd = connect_cmd_prefix + host_random + SEC1_UNCOMPRESSED_POINT_HEADER + host_public_key.to_string() + connect_cmd_suffix
+	connect_cmd = connect_cmd_prefix + host_random + host_public_key_bytes + connect_cmd_suffix
 	write(connect_cmd)
 	connect_response = read()
 	return connect_response
 
 class SdcpConnectResponse:
-	r_d: bytes
-	cert_m: bytes
-	pk_d: bytes
-	pk_f: bytes
+	r_d: bytes    # 32
+	cert_m: bytes # variable length
+	pk_d: bytes   # 65
+	pk_f: bytes   # 65
+	h_f: bytes    # 32
+	s_m: bytes    # 64
+	s_d: bytes    # 64
+	m: bytes      # 32
 	def __init__(self):
 		pass
 
@@ -153,18 +158,23 @@ def parse_sdcp_connect_response(value):
 	if value[pos:pos+1].tobytes() != b'\x04':
 		raise ValueError("Could not parse pk_f from SDCP ConnectResponse")
 	result.pk_f = value[pos:pos+65].tobytes() # 0x04 + 64 bytes
+	pos += 65
 
-	# TODO: per: https://github.com/Microsoft/SecureDeviceConnectionProtocol/wiki/Secure-Device-Connection-Protocol#secure-connection-protocol
-	# At this point we need to use the above-parsed fields and do the following:
-	#
-	# Performs key agreement:
-	# 	a <- KeyAgreement(sk_h, pk_f)
-	# Derives master secret:
-	# 	ms <- KDF(a, "master secret", r_h||r_d)
-	# Derives MAC secret, s, and symmetric key, k:
-	# 	(s, k) <- KDF(ms, "application keys")
-	#
-	# "s" will then be used when actually creating Commit IDs later (new_finger_id)
+	# get h_f
+	result.h_f = value[pos:pos+32].tobytes()
+	pos += 32
+
+	# get s_m
+	result.s_m = value[pos:pos+64].tobytes()
+	pos += 64
+
+	# get s_d
+	result.s_d = value[pos:pos+64].tobytes()
+	pos += 64
+
+	# get m
+	result.m = value[pos:pos+32].tobytes()
+	pos += 32
 
 	return result
 
@@ -377,8 +387,9 @@ def enroll():
 	print(f"egismoc SDCP ConnectResponse: {connect_response_raw.tobytes().hex(' ')}")
 	# parse the connect response so the various fields can be used later
 	connect_response = parse_sdcp_connect_response(connect_response_raw)
-	host_ecdh.load_received_public_key_bytes(connect_response.pk_f)
-	key_agreement = host_ecdh.generate_sharedsecret_bytes()
+
+	remote_public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bytes(connect_response.pk_f))
+	key_agreement = host_private_key.exchange(ec.ECDH(), remote_public_key)
 
 	# "derive master secret"
 	# take key_agreement as "key"
@@ -411,6 +422,32 @@ def enroll():
 	)
 	# application_keys is what SDCP calls the "MAC secret `s`, and symmetric key `k`"
 	application_keys = kdf_application_keys.derive(master_secret)
+
+	# Compare hash of claim
+	claim = connect_response.cert_m + connect_response.pk_d + connect_response.pk_f + connect_response.h_f + connect_response.s_m + connect_response.s_d
+	claim_hash = hashlib.sha256()
+	claim_hash.update(connect_response.cert_m)
+	claim_hash.update(connect_response.pk_d)
+	claim_hash.update(connect_response.pk_f)
+	claim_hash.update(connect_response.h_f)
+	claim_hash.update(connect_response.s_m)
+	claim_hash.update(connect_response.s_d)
+
+	verify_m = hmac.new(key=application_keys, msg=b'connect\x00' + claim_hash.digest(), digestmod=hashlib.sha256).digest()
+	print(f"---")
+	print(f"Are the claim hashes the same?")
+	print(f"{connect_response.m.hex(' ')}")
+	print(f"{verify_m.hex(' ')}")
+	print(f"---")
+
+	
+
+	# "verify the claim"
+	# ... TODO
+	# pk_m <- Validate(cert_m)
+	# Verify(pk_m, H(pk_d), s_m)
+	# Verify(pk_d, H(C001||h_f||pk_f), s_d)
+	# Validate(h_f)
 
 	write(b'\x07\x50\x16\x01\x00\x00\x00\x20')
 	enrollment_nonce_response = read()
