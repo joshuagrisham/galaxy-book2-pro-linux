@@ -39,6 +39,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.kbkdf import (
    CounterLocation, KBKDFHMAC, Mode
 )
+from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
@@ -70,15 +71,27 @@ NUM_ENROLL_STAGES = 10
 ## supposed to use NIST P256 curve per https://github.com/Microsoft/SecureDeviceConnectionProtocol/wiki/Secure-Device-Connection-Protocol#cryptographic-algorithms
 # per https://cryptography.io/en/latest/hazmat/primitives/asymmetric/ec/#cryptography.hazmat.primitives.asymmetric.ec.SECP256R1
 # SECP256R1 = NIST P-256
+
+# Get private key from bytes instead of int (if needed?) as per https://github.com/pyca/cryptography/issues/3487#issuecomment-571173267
+def private_key_from_bytes(data: bytes, curve: ec.EllipticCurve) -> ec.EllipticCurvePrivateKey:
+    field_size = curve.key_size // 8    # The length of a field (for given curve)
+    scalar = int.from_bytes(data[-field_size:], 'big')
+    return ec.derive_private_key(scalar, curve, default_backend())
+
+## generate a new private key every time ?
 host_private_key = ec.generate_private_key(ec.SECP256R1())
+
+## or use an existing ?
+## using value from host_private_key.private_numbers().private_value like this:
+#host_private_key_value = 77387944134590249479715663152993234886299496311988281941729130045601899282228
+#host_private_key = ec.derive_private_key(host_private_key_value, ec.SECP256R1())
+## or using bytes sort of like this:
+#host_private_key_bytes = bytes(bytearray.fromhex('8400ed14579cdf11586477e836e8cb52708441c1c2a447c218c5bbc2d118fbc7'))
+#host_private_key = private_key_from_bytes(host_private_key_bytes, ec.SECP256R1())
+
 host_public_key = host_private_key.public_key()
 host_public_key_bytes = host_public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
 host_random = secrets.token_bytes(32)
-
-# if you wish to save and re-use the same private key, capture this value:
-host_private_key_value = host_private_key.private_numbers().private_value
-# then it can be loaded like this:
-# existing_host_private_key = ec.derive_private_key(host_private_key_value, ec.SECP256R1())
 
 def egismoc_sdcp_connect():
 	connect_cmd_prefix = b'\x6b\x50\x57\x01\x00\x00\x00\x62\x20'
@@ -87,6 +100,18 @@ def egismoc_sdcp_connect():
 	write(connect_cmd)
 	connect_response = read()
 	return connect_response
+
+reconnect_random = None
+def egismoc_sdcp_reconnect():
+	global reconnect_random
+	# generate a new random for reconnect; it will not be used 
+	reconnect_random = secrets.token_bytes(32)
+	reconnect_cmd_prefix = b'\x2a\x50\x57\x02\x00\x00\x00\x21\x20'
+	reconnect_cmd_suffix = b'\x00\x20'
+	reconnect_cmd = reconnect_cmd_prefix + reconnect_random + reconnect_cmd_suffix
+	write(reconnect_cmd)
+	reconnect_response = read()
+	return reconnect_response
 
 class SdcpConnectResponse:
 	r_d: bytes    # 32
@@ -100,13 +125,13 @@ class SdcpConnectResponse:
 	def __init__(self):
 		pass
 
-def parse_sdcp_connect_response(value):
+def parse_sdcp_connect_response(value) -> SdcpConnectResponse:
 	value_len = len(value.tobytes())
 	if value[value_len-2:value_len].tobytes() != b'\x90\x00':
 		raise ValueError("device indicated failure instead of sending valid SDCP ConnectResponse")
 
 	result = SdcpConnectResponse()
-	
+
 	# get r_d:
 	result.r_d = value[15:15+32].tobytes()
 	pos = 15+32
@@ -138,8 +163,8 @@ def parse_sdcp_connect_response(value):
 		print(f"  Subject:          {cert_m.subject}")
 		print(f"  Issuer:           {cert_m.issuer.rdns}")
 		print(f"  Serial number:    {cert_m.serial_number}")
-		print(f"  Not valid before: {cert_m.not_valid_before}")
-		print(f"  Not valid after:  {cert_m.not_valid_after}")
+		print(f"  Not valid before: {cert_m.not_valid_before_utc}")
+		print(f"  Not valid after:  {cert_m.not_valid_after_utc}")
 		print(f"  Extensions:       {cert_m.extensions}")
 		print("-----")
 		pos += (len_pos - pos) + cert_m_len
@@ -177,6 +202,89 @@ def parse_sdcp_connect_response(value):
 	pos += 32
 
 	return result
+
+class SdcpConnectResponseKeys:
+	connect_response: SdcpConnectResponse
+	device_public_key: ec.EllipticCurvePublicKey
+	key_agreement: bytes
+	master_secret: bytes
+	application_keys: bytes
+	def __init__(self):
+		pass
+
+def verify_sdcp_connect_response(value) -> SdcpConnectResponseKeys:
+	result = SdcpConnectResponseKeys()
+	result.connect_response = parse_sdcp_connect_response(value)
+	result.device_public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bytes(result.connect_response.pk_f))
+	result.key_agreement = host_private_key.exchange(ec.ECDH(), result.device_public_key)
+
+	result.master_secret = KBKDFHMAC(
+		algorithm=hashes.SHA256(),
+		mode=Mode.CounterMode,
+		length=32,
+		rlen=4,
+		llen=4,
+		location=CounterLocation.BeforeFixed,
+		label=str.encode("master secret"), # hard-coded label to use for Master Secret as-specified in SDCP
+		context=bytes(host_random + result.connect_response.r_d), # context is concat of r_h + r_d as per SDCP
+		fixed=None,
+	).derive(result.key_agreement)
+
+	result.application_keys = KBKDFHMAC(
+		algorithm=hashes.SHA256(),
+		mode=Mode.CounterMode,
+		length=64,
+		rlen=4,
+		llen=4,
+		location=CounterLocation.BeforeFixed,
+		label=str.encode("application keys"), # hard-coded label to use for Application Leys as-specified in SDCP
+		context=None, # no context for Application Keys as per SDCP
+		fixed=None,
+	).derive(result.master_secret)
+
+	# "Verify" ConnectResponse
+	c_hash = hashlib.sha256()
+	c_hash.update(bytes(result.connect_response.cert_m))
+	c_hash.update(bytes(result.connect_response.pk_d))
+	c_hash.update(bytes(result.connect_response.pk_f))
+	c_hash.update(bytes(result.connect_response.h_f))
+	c_hash.update(bytes(result.connect_response.s_m))
+	c_hash.update(bytes(result.connect_response.s_d))
+
+	verify_m_hmac = hmac.new(key=result.application_keys[0:32], digestmod=hashlib.sha256)
+	verify_m_hmac.update(str.encode("connect") + b'\x00')
+	verify_m_hmac.update(c_hash.digest())
+	verify_m = verify_m_hmac.digest()
+
+	assert(result.connect_response.m.hex() == verify_m.hex())
+	print(f'SDCP ConnectResponse verified successfully ({verify_m.hex()})')
+
+	return result
+
+def parse_sdcp_reconnect_response(value) -> bytes:
+	value_len = len(value.tobytes())
+	if value[value_len-2:value_len].tobytes() != b'\x90\x00':
+		raise ValueError("device indicated failure instead of sending valid SDCP ReconnectResponse")
+
+	# returned "reconnect" mac is 32 bytes starting from position 14
+	return value[14:14+32].tobytes()
+
+def verify_sdcp_reconnect_response(keys : SdcpConnectResponseKeys, value) -> bool:
+	mac = parse_sdcp_reconnect_response(value)
+	# "Verify" ReconnectResponse by hashing the new reconnect_random with response from device (mac)
+	verify_m_hmac = hmac.new(key=keys.application_keys[0:32], digestmod=hashlib.sha256)
+	verify_m_hmac.update(str.encode("reconnect") + b'\x00')
+	verify_m_hmac.update(reconnect_random)
+	verify_m = verify_m_hmac.digest()
+	assert(mac.hex() == verify_m.hex())
+	print(f'SDCP ReconnectResponse verified successfully ({verify_m.hex()})')
+	return True
+
+def generate_sdcp_enrollment_id(keys: SdcpConnectResponseKeys, nonce: bytes) -> bytes:
+	id_h_hmac = hmac.new(key=keys.application_keys[0:32], digestmod=hashlib.sha256)
+	id_h_hmac.update(str.encode("enroll") + b'\x00')
+	id_h_hmac.update(nonce)
+	return id_h_hmac.digest()
 
 
 # Bytes prefix for every payload sent to and from device
@@ -382,84 +490,25 @@ def enroll():
 	# TODO: if this result then it is considered a bad packet payload from fingers_enrolled_payload() (bad CRC etc?)?
 	#b'\xf5\x8c\x00\x00\x00\x02\x6f\xe1'
 
-	# perform a sdcp_connect
+	# perform a SDCP Connect and generate keys
 	connect_response_raw = egismoc_sdcp_connect()
 	print(f"egismoc SDCP ConnectResponse: {connect_response_raw.tobytes().hex(' ')}")
-	# parse the connect response so the various fields can be used later
-	connect_response = parse_sdcp_connect_response(connect_response_raw)
+	# parse and verify the connect response and return various keys
+	keys = verify_sdcp_connect_response(connect_response_raw)
 
-	remote_public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bytes(connect_response.pk_f))
-	key_agreement = host_private_key.exchange(ec.ECDH(), remote_public_key)
+	# just for fun, let's also try a SDCP Reconnect and make sure it is working
+	reconnect_response_raw = egismoc_sdcp_reconnect()
+	print(f"egismoc SDCP ReconnectResponse: {reconnect_response_raw.tobytes().hex(' ')}")
+	verify_sdcp_reconnect_response(keys, reconnect_response_raw)
 
-	# "derive master secret"
-	# take key_agreement as "key"
-	# label = "master secret"
-	# context = "random"; 64-byte long concat of r_h + r_d
-	# I *think* that it should be to kdf.derive(key_agreement) using above params for kdf
-	kdf_master_secret = KBKDFHMAC(
-		algorithm=hashes.SHA256(),
-		mode=Mode.CounterMode,
-		length=32,
-		rlen=4,
-		llen=4,
-		location=CounterLocation.BeforeFixed,
-		label=b'master secret\x00', # hard-coded label to use for Master Secret as-specified in SDCP
-		context=host_random + connect_response.r_d, # context is concat of r_h + r_d as per SDCP
-		fixed=None,
-	)
-	master_secret = kdf_master_secret.derive(key_agreement)
-
-	kdf_application_keys = KBKDFHMAC(
-		algorithm=hashes.SHA256(),
-		mode=Mode.CounterMode,
-		length=32,
-		rlen=4,
-		llen=4,
-		location=CounterLocation.BeforeFixed,
-		label=b'application keys\x00', # hard-coded label to use for Application Leys as-specified in SDCP
-		context=None, # no context for Application Keys as per SDCP
-		fixed=None,
-	)
-	# application_keys is what SDCP calls the "MAC secret `s`, and symmetric key `k`"
-	application_keys = kdf_application_keys.derive(master_secret)
-
-	# Compare hash of claim
-	claim = connect_response.cert_m + connect_response.pk_d + connect_response.pk_f + connect_response.h_f + connect_response.s_m + connect_response.s_d
-	claim_hash = hashlib.sha256()
-	claim_hash.update(connect_response.cert_m)
-	claim_hash.update(connect_response.pk_d)
-	claim_hash.update(connect_response.pk_f)
-	claim_hash.update(connect_response.h_f)
-	claim_hash.update(connect_response.s_m)
-	claim_hash.update(connect_response.s_d)
-
-	verify_m = hmac.new(key=application_keys, msg=b'connect\x00' + claim_hash.digest(), digestmod=hashlib.sha256).digest()
-	print(f"---")
-	print(f"Are the claim hashes the same?")
-	print(f"{connect_response.m.hex(' ')}")
-	print(f"{verify_m.hex(' ')}")
-	print(f"---")
-
-	
-
-	# "verify the claim"
-	# ... TODO
-	# pk_m <- Validate(cert_m)
-	# Verify(pk_m, H(pk_d), s_m)
-	# Verify(pk_d, H(C001||h_f||pk_f), s_d)
-	# Validate(h_f)
-
+	# Now get the nonce from the device
 	write(b'\x07\x50\x16\x01\x00\x00\x00\x20')
 	enrollment_nonce_response = read()
 	print(f"Read: {enrollment_nonce_response.tobytes().hex(' ')}")
 	enrollment_nonce = enrollment_nonce_response[14:14+32].tobytes() # enrollment_nonce is 32 bytes starting at position 14
-
-	# new_finger_id should be `MAC(s, b'enroll' + enrollment_nonce)` according to the spec: https://github.com/Microsoft/SecureDeviceConnectionProtocol/wiki/Secure-Device-Connection-Protocol#enrollment
-	# but what is `s` ? It should be a secret that is created from the connect_response + some kind of host keys??
 	
-	new_finger_id = hmac.new(key=application_keys, msg=b'enroll' + enrollment_nonce + b'\x00', digestmod=hashlib.sha256).digest()
-	#new_finger_id = hmac.new(key=application_keys, msg=b'enroll\x00' + enrollment_nonce, digestmod=hashlib.sha256).digest()
-	## new_finger_id = hmac.new(key=enrollment_nonce, msg=b'enroll\x00', digestmod=hashlib.sha256).digest()
+	# and generate the new enrollment id based on our generated keys and the returned nonce
+	new_finger_id = generate_sdcp_enrollment_id(keys, enrollment_nonce)
 
 	write(b'\x04\x50\x1a\x00\x00')
 	print(f"Read: {read().tobytes().hex(' ')}")
@@ -512,44 +561,18 @@ def enroll():
 			# Build new enrolled fingerprint identifier payload
 			# first is a hardcoded string of bytes
 			payload = b'\x27\x50\x16\x03\x00\x00\x00\x20'
-			# Then the rest is actually the "identifier" for the fingerprint (which is sent back from device later) - how should this be generated?
-			# I think the driver is actually creating and assigning these here? Not sure how it is generated, maybe start with just generating a new 32 byte token?
-			# new_finger_id = secrets.token_bytes(32) # TODO: Now this is generated above using SDCP
+			# Then the rest is actually the "identifier" for the fingerprint (which is sent back from device later)
+			# This should be the new enrollment id generated from the SDCP Enrollment process i.e. in SDCP lingo this next request is the "EnrollCommit"
 			payload += new_finger_id
 
-			# new_finger_hmac = hmac.new(key=host_random, msg=b'enroll\x00', digestmod=hashlib.sha256)
-			# new_finger_id = new_finger_hmac.digest()
-			# payload = b'\x27\x50\x16\x03\x00\x00\x00\x20' + new_finger_hmac.digest()
-			# write(payload)
-			# print(f"Read: {read().tobytes().hex(' ')}")
+			write(payload)
+			enrollment_response = read()
+			print(f"Read: {enrollment_response.tobytes().hex(' ')}")
 
-			#print(f"--- TRYING DIFFERENT FINGERPRINT ID COMBINATIONS: ---")
+			# just re-use PARTIAL_READ_SUCCESS_REGEX as a way to check that last bytes are 90 00 (successfully enrolled)
+			if not PARTIAL_READ_SUCCESS_REGEX.fullmatch(enrollment_response):
+				raise ValueError("Enrollment was rejected!")
 
-			# payload = b'\x27\x50\x16\x03\x00\x00\x00\x20' + enrollment_nonce
-			# write(payload)
-			# print(f"Read: {read().tobytes().hex(' ')}")
-
-			def try_write_new_finger(hmac: hmac.HMAC):
-				global new_finger_id
-				new_finger_id = hmac.digest()
-				global payload
-				payload = b'\x27\x50\x16\x03\x00\x00\x00\x20' + new_finger_id
-				write(payload)
-				print(f"Read: {read().tobytes().hex(' ')}")
-			
-			def hm(key, msg):
-				return hmac.new(key=key, msg=msg, digestmod=hashlib.sha256)
-
-#			try_write_new_finger(hm(application_keys, b'enroll\x00nroll\x00roll\x00oll\x00ll\x00l\x00\x00'))
-			try_write_new_finger(hm(enrollment_nonce, b'enroll\x00nroll\x00roll\x00oll\x00ll\x00l\x00'))
-#			try_write_new_finger(hm(enrollment_nonce, b'enroll\x00'))
-#			try_write_new_finger(hm(connect_response.pk_d, b'enroll\x00'))
-#			try_write_new_finger(hm(connect_response.pk_f, b'enroll\x00'))
-#			try_write_new_finger(hm(connect_response.r_d, b'enroll\x00'))
-#			try_write_new_finger(hm(host_random, b'enroll\x00'))
-#			try_write_new_finger(hm(host_public_key.to_string(), b'enroll\x00'))
-
-			# TODO: Here we should check the read payload to see if it was actually success or not
 			# TODO: In theory this should be "per user" e.g. per os.getlogin() and then that these IDs per user are saved somewhere like a file or database?
 			fingers_enrolled.append(new_finger_id)
 			print("Success! New fingerprint added.")
@@ -675,8 +698,8 @@ def main(args):
 		wipe()
 
 if __name__ == '__main__':
-	#args = docopt(__doc__.replace("ARGV0", sys.argv[0]))
-	#main(args)
-	setup()
+	args = docopt(__doc__.replace("ARGV0", sys.argv[0]))
+	main(args)
+	#setup()
 	#verify()
-	enroll()
+	#enroll()
