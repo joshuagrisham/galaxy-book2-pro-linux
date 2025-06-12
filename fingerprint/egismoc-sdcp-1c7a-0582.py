@@ -125,7 +125,7 @@ class SdcpConnectResponse:
 	def __init__(self):
 		pass
 
-def parse_sdcp_connect_response(value) -> SdcpConnectResponse:
+def parse_egismoc_connect_response(value) -> SdcpConnectResponse:
 	value_len = len(value.tobytes())
 	if value[value_len-2:value_len].tobytes() != b'\x90\x00':
 		raise ValueError("device indicated failure instead of sending valid SDCP ConnectResponse")
@@ -214,7 +214,7 @@ class SdcpConnectResponseKeys:
 
 def verify_sdcp_connect_response(value) -> SdcpConnectResponseKeys:
 	result = SdcpConnectResponseKeys()
-	result.connect_response = parse_sdcp_connect_response(value)
+	result.connect_response = parse_egismoc_connect_response(value)
 	result.device_public_key = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bytes(result.connect_response.pk_f))
 	result.key_agreement = host_private_key.exchange(ec.ECDH(), result.device_public_key)
 
@@ -261,7 +261,7 @@ def verify_sdcp_connect_response(value) -> SdcpConnectResponseKeys:
 
 	return result
 
-def parse_sdcp_reconnect_response(value) -> bytes:
+def parse_egismoc_reconnect_response(value) -> bytes:
 	value_len = len(value.tobytes())
 	if value[value_len-2:value_len].tobytes() != b'\x90\x00':
 		raise ValueError("device indicated failure instead of sending valid SDCP ReconnectResponse")
@@ -270,7 +270,7 @@ def parse_sdcp_reconnect_response(value) -> bytes:
 	return value[14:14+32].tobytes()
 
 def verify_sdcp_reconnect_response(keys : SdcpConnectResponseKeys, value) -> bool:
-	mac = parse_sdcp_reconnect_response(value)
+	mac = parse_egismoc_reconnect_response(value)
 	# "Verify" ReconnectResponse by hashing the new reconnect_random with response from device (mac)
 	verify_m_hmac = hmac.new(key=keys.application_keys[0:32], digestmod=hashlib.sha256)
 	verify_m_hmac.update(str.encode("reconnect") + b'\x00')
@@ -286,6 +286,34 @@ def generate_sdcp_enrollment_id(keys: SdcpConnectResponseKeys, nonce: bytes) -> 
 	id_h_hmac.update(nonce)
 	return id_h_hmac.digest()
 
+class SdcpAuthorizedIdentity:
+	id: bytes
+	m: bytes
+	def __init__(self):
+		pass
+
+def parse_egismoc_authorized_identity(value) -> SdcpAuthorizedIdentity:
+	value_len = len(value.tobytes())
+	if value[value_len-2:value_len].tobytes() != b'\x90\x00':
+		raise ValueError("device indicated failure instead of sending valid SDCP AuthorizedIdentity")
+
+	result = SdcpAuthorizedIdentity()
+	# AuthorizedIdentity seems to be backwards on egismoc devices (m,id instead of id,m)
+	result.m = value[14:14+32].tobytes()
+	result.id = value[14+32:14+32+32].tobytes()
+	return result
+
+def verify_sdcp_authorized_identity(keys : SdcpConnectResponseKeys, nonce, value) -> bool:
+	authorized_identity = parse_egismoc_authorized_identity(value)
+	# "Verify" AuthorizedIdentity by hashing the nonce with the id and compare with response from device (mac)
+	verify_m_hmac = hmac.new(key=keys.application_keys[0:32], digestmod=hashlib.sha256)
+	verify_m_hmac.update(str.encode("identify") + b'\x00')
+	verify_m_hmac.update(nonce)
+	verify_m_hmac.update(authorized_identity.id)
+	verify_m = verify_m_hmac.digest()
+	assert(authorized_identity.m.hex() == verify_m.hex())
+	print(f'SDCP AuthorizedIdentity verified successfully ({verify_m.hex()})')
+	return True
 
 # Bytes prefix for every payload sent to and from device
 WRITE_PREFIX = b'EGIS\x00\x00\x00\x01'
@@ -403,7 +431,7 @@ def fingers_enrolled_payload():
 	payload += b'\x50\x17\x03\x00\x00\x00'
 	# then ("num fingers regd * 20") # TODO based on this logic does it mean only max 7 fingers per user?
 	payload += ((len(fingers_enrolled) + 1) * 0x20).to_bytes()
-	# Then hard-coded 32 x 00s
+	# Then hard-coded 32 x 00s -- actually this is the nonce for the SDCP Identify command; for some reason all of the EGIS Windows traces I have seen, the driver always send 00s as the nonce for this?
 	payload += b'\x00\x00\x00\x00\x00\x00\x00\x00'
 	payload += b'\x00\x00\x00\x00\x00\x00\x00\x00'
 	payload += b'\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -599,6 +627,12 @@ def verify():
 	if len(fingers_enrolled) == 0:
 		raise ValueError('No fingers are enrolled!')
 
+	# perform a SDCP Connect and generate keys
+	connect_response_raw = egismoc_sdcp_connect()
+	print(f"egismoc SDCP ConnectResponse: {connect_response_raw.tobytes().hex(' ')}")
+	# parse and verify the connect response and return various keys
+	keys = verify_sdcp_connect_response(connect_response_raw)
+
 	# setup to read a print - in the trace this seems to be done after the read is kicked off on INTERRUPT IN but is it ok to do single-threaded like this?
 	write(b'\x04\x50\x17\x01\x01')
 	print(f"Read: {read().tobytes().hex(' ')}")
@@ -621,9 +655,18 @@ def verify():
 	if not mtch:
 		result = False
 		print('Your fingerprint could not be recognized. Please try a different finger.')
+		return
 	else:
 		result = True
 		print("Matched fingerprint! TODO: capture ID and match vs user")
+
+	# Perform SDCP AuthorizedIdentity verification check
+	# for some reason many (most/all?) of the EGIS device drivers seem to send all 0s as the "identify nonce" ... ?
+	nonce = b'\x00\x00\x00\x00\x00\x00\x00\x00'
+	nonce += b'\x00\x00\x00\x00\x00\x00\x00\x00'
+	nonce += b'\x00\x00\x00\x00\x00\x00\x00\x00'
+	nonce += b'\x00\x00\x00\x00\x00\x00\x00\x00'
+	verify_sdcp_authorized_identity(keys, nonce, verify_finger_payload)
 
 	## TODO: This capture / check may not be needed but also seems to be an issue with the regex/logic -- comment out for now...
 	#finger_id = mtch.group(4) # needs to be 4 due to workaround with (.|\n), so the finger ID is the 5th capture group we can get from the match
